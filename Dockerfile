@@ -7,10 +7,10 @@ ARG OQSPROVIDER_TAG=main
 # liboqs build type variant; maximum portability of image:
 ARG LIBOQS_BUILD_DEFINES="-DOQS_DIST_BUILD=ON"
 ARG WOLFSSL_VERSION=5.6.6-stable
-ARG NGINX_VERSION=1.25.0
+ARG NGINX_VERSION=1.24.0
 ARG MAKE_DEFINES="-j 18"
 
-FROM alpine as builder
+FROM alpine:3.14 as builder
 
 RUN set -eux \
   # install deps
@@ -58,9 +58,11 @@ RUN wget nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && tar -zxvf nginx-${N
 
 WORKDIR /opt/nginx-${NGINX_VERSION}
 
-RUN wget https://raw.githubusercontent.com/wolfSSL/wolfssl-nginx/master/nginx-1.25.0-wolfssl.patch
+RUN wget https://raw.githubusercontent.com/wolfSSL/wolfssl-nginx/master/nginx-1.24.0-wolfssl.patch
+COPY ./nginx-1.24.0-pq.patch /opt/nginx-${NGINX_VERSION}/patch.patch
+RUN patch -p1 < patch.patch
+RUN patch -p1 < nginx-1.24.0-wolfssl.patch
 
-RUN patch -p1 < nginx-1.25.0-wolfssl.patch
 
 ###############################################################################
 FROM builder as oqs
@@ -91,13 +93,27 @@ WORKDIR /opt
 RUN cd wolfssl-${WOLFSSL_VERSION} \
   && ./autogen.sh \
   && ./configure --prefix=/usr/local \
+  --enable-md5=no \
+  --enable-sp \
+  --enable-sp-math-all \
+  --enable-sp-asm \
+  --enable-tls13 \
+  --enable-tlsx \
+  --enable-session-ticket \
+  --enable-nullcipher \
+  --enable-harden \
+  --enable-asn \
+  --enable-certgen \
+  --enable-opensslextra \
   --with-liboqs \
   --disable-test \
   --disable-examples \
   --enable-nginx \
+  --enable-dual-alg-certs \
   && make \
   && make check \
-  && make install 
+  && make install
+
 
 ###############################################################################
 FROM builder as nginx
@@ -106,27 +122,41 @@ ARG NGINX_VERSION
 ARG MAKE_DEFINES
 
 COPY --from=wolfssl /usr/local /usr/local
-
 COPY --from=fetcher /opt/nginx-${NGINX_VERSION} /opt/nginx-${NGINX_VERSION}
 
 # check if wolfssl is installed
 RUN test -d /usr/local/include/wolfssl
 
 WORKDIR /opt/nginx-${NGINX_VERSION}
-
 RUN ./configure \
+  --with-debug \
   --with-wolfssl=/usr/local \
   --with-http_ssl_module \
   && make ${MAKE_DEFINES} && make install;
 
-###############################################################################
+FROM builder as curl-with-wolfssl
+
+COPY --from=wolfssl /usr/local /usr/local
+
+RUN apk add --no-cache libpsl-dev
+
+WORKDIR /opt
+
+RUN wget https://github.com/curl/curl/releases/download/curl-8_6_0/curl-8.6.0.zip
+
+RUN unzip curl-8.6.0.zip
+
+WORKDIR /opt/curl-8.6.0
+
+RUN ./configure --with-wolfssl
+
+RUN make ${MAKE_DEFINES} && make install
+
 FROM alpine as final
 
 RUN apk add --no-cache bash pcre zlib openssl
 
 COPY --from=nginx /usr/local /usr/local
-
-RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /usr/local/nginx/conf/server.key -out /usr/local/nginx/conf/server.crt -subj "/C=DE/ST=LAS3/L=Waifu/O=Waifu-cloud/OU=WAIFU/CN=waifu-pq"
 
 ENV PATH=$PATH:/usr/local/nginx/sbin
 
