@@ -1,0 +1,44 @@
+services:
+  wolfssl-nginx:
+    build:
+      context: .
+      target: wolfssl-nginx
+      dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD", "sh", "-c",
+          "test -f /usr/local/nginx/sbin/nginx && test -f /usr/local/lib/libwolfssl.so"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    environment:
+      - LIBOQS_TAG=main
+      - WOLFSSL_VERSION=development
+      - NGINX_VERSION=1.24.0
+      - SSH_AUTH_SOCK=$SSH_AUTH_SOCK
+    stdin_open: true
+    tty: true
+    volumes:
+      - libs:/usr/local/
+      - type: bind
+        source: $SSH_AUTH_SOCK
+        target: $SSH_AUTH_SOCK
+    command: /bin/sh
+  nginx:
+    build:
+      context: .
+      target: nginx
+      dockerfile: Dockerfile
+    depends_on:
+      wolfssl-nginx:
+        condition: service_healthy
+    ports:
+      - 8080:80
+      - 443:443
+    volumes:
+      - libs:/usr/local/
+      - ./nginx.conf:/usr/local/nginx/conf/nginx.conf
+      # - <>:/usr/local/nginx/conf/server_cert.pem
+      # - <>:/usr/local/nginx/conf/server_key.pem
+
+volumes:
+  libs:
