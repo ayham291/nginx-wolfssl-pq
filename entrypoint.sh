@@ -12,25 +12,24 @@ build_wolfssl() {
   cd "$WOLFSSL_DIR"
   ./autogen.sh
   ./configure --prefix=/usr/local \
-    --enable-md5=no \
-    --enable-sp \
-    --enable-sp-math-all \
-    --enable-sp-asm \
+    --enable-all \
     --enable-tls13 \
     --enable-tlsx \
     --enable-session-ticket \
     --enable-nullcipher \
     --enable-harden \
-    --enable-asn \
-    --enable-certgen \
+    --enable-asn=template \
     --enable-opensslextra \
-    --with-liboqs \
+    --enable-experimental \
+    --enable-kyber=yes \
+    --enable-dual-alg-certs \
+    --enable-dilithium=yes,fips204-draft \
     --disable-examples \
     --enable-nginx \
-    --enable-dual-alg-certs \
-    --enable-experimental
-  make -j"$(nproc)" check
+    --enable-keylog-export \
+    --enable-debug
   make -j"$(nproc)"
+  make -j"$(nproc)" check
   make install -j"$(nproc)"
   echo "$latest_commit" > "$WOLFSSL_DIR/.last_built_commit"
 }
